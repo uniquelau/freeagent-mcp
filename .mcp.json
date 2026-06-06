@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "freeagent": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["build/index.js"],
+      "env": {
+        "FREEAGENT_CLIENT_ID": "${FREEAGENT_CLIENT_ID}",
+        "FREEAGENT_CLIENT_SECRET": "${FREEAGENT_CLIENT_SECRET}",
+        "FREEAGENT_SANDBOX": "${FREEAGENT_SANDBOX:-true}"
+      }
+    }
+  }
+}

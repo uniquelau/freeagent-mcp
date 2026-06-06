@@ -168,6 +168,14 @@ Add to your `.mcp.json`:
 }
 ```
 
+**Running from source:** this repo ships a project [`.mcp.json`](.mcp.json) that
+launches the locally built server (`node build/index.js`) and reads credentials
+via environment-variable expansion (`${FREEAGENT_CLIENT_ID}` etc.), so no secrets
+are committed. Before using it: `npm run build`, export `FREEAGENT_CLIENT_ID` /
+`FREEAGENT_CLIENT_SECRET` (and authenticate once with
+`node build/index.js auth`), then reload MCP servers in Claude Code. It defaults
+to the sandbox (`FREEAGENT_SANDBOX` defaults to `true`).
+
 ## Architecture
 
 ```
