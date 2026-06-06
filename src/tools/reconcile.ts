@@ -68,7 +68,10 @@ export function registerReconcileTools(server: McpServer, client: FreeAgentClien
     "freeagent_reconcile_bank_transaction",
     "Reconcile a bank transaction by creating a bank transaction explanation " +
       "that links it to a category, a paid invoice, or a paid bill. Provide " +
-      "exactly one of `category`, `paid_invoice`, or `paid_bill`.",
+      "exactly one of `category`, `paid_invoice`, or `paid_bill`. Optionally set " +
+      "VAT explicitly via `sales_tax_rate` / `sales_tax_value` / `ec_status` " +
+      "(e.g. Reverse Charge for overseas B2B services); omit to use the " +
+      "category's default VAT treatment.",
     {
       bank_transaction_id: idOrUrl("bank_transaction_id").describe(
         "ID or URL of the bank transaction to reconcile"
@@ -104,6 +107,34 @@ export function registerReconcileTools(server: McpServer, client: FreeAgentClien
         .describe(
           "Set true to flag the explanation for review instead of fully reconciling"
         ),
+      sales_tax_rate: z
+        .string()
+        .optional()
+        .describe(
+          "VAT/sales-tax rate as a percentage, e.g. \"20.0\" or \"0.0\". Omit to inherit the category's default rate."
+        ),
+      sales_tax_value: z
+        .string()
+        .optional()
+        .describe(
+          "Explicit VAT amount in the account currency (overrides the computed value). Use when the invoice VAT differs from rate × net."
+        ),
+      ec_status: z
+        .enum([
+          "UK/Non-EC",
+          "EC Goods",
+          "EC Services",
+          "Reverse Charge",
+          "EC VAT MOSS",
+        ])
+        .optional()
+        .describe(
+          "VAT treatment. Use \"Reverse Charge\" for overseas B2B services (e.g. Microsoft/Azure/AWS billed from outside the UK). EC Goods/Services are invalid for GB companies on/after 2021-01-01."
+        ),
+      place_of_supply: z
+        .string()
+        .optional()
+        .describe("Place of supply — only used when ec_status is \"EC VAT MOSS\""),
     },
     async ({
       bank_transaction_id,
@@ -114,6 +145,10 @@ export function registerReconcileTools(server: McpServer, client: FreeAgentClien
       gross_value,
       dated_on,
       marked_for_review,
+      sales_tax_rate,
+      sales_tax_value,
+      ec_status,
+      place_of_supply,
     }) => {
       logToolCall("freeagent_reconcile_bank_transaction", {
         bank_transaction_id,
@@ -136,6 +171,7 @@ export function registerReconcileTools(server: McpServer, client: FreeAgentClien
             dated_on?: string;
             amount?: string;
             unexplained_amount?: string;
+            description?: string;
           };
         };
         const tx = txData.bank_transaction;
@@ -152,10 +188,19 @@ export function registerReconcileTools(server: McpServer, client: FreeAgentClien
           dated_on: dated_on ?? tx.dated_on,
           gross_value: gross_value ?? tx.unexplained_amount ?? tx.amount,
         };
-        if (description !== undefined) explanation.description = description;
+        // FreeAgent requires a non-blank description for some explanations
+        // (e.g. reverse charge); default to the bank memo when none is given.
+        const finalDescription = description ?? tx.description;
+        if (finalDescription) explanation.description = finalDescription;
         if (marked_for_review !== undefined) {
           explanation.marked_for_review = marked_for_review;
         }
+        // VAT / sales-tax handling (optional). Omitted fields let FreeAgent apply
+        // the category's default treatment.
+        if (sales_tax_rate !== undefined) explanation.sales_tax_rate = sales_tax_rate;
+        if (sales_tax_value !== undefined) explanation.sales_tax_value = sales_tax_value;
+        if (ec_status !== undefined) explanation.ec_status = ec_status;
+        if (place_of_supply !== undefined) explanation.place_of_supply = place_of_supply;
 
         if (category) {
           explanation.category = await resolveResourceUrl(

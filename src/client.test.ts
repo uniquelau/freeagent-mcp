@@ -262,6 +262,28 @@ describe("FreeAgentClient - error handling", () => {
     }
   });
 
+  it("surfaces array-form validation errors (FreeAgent 422)", async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockError(422, {
+        errors: [
+          { message: "sales_tax_rate must be set to 'Auto' or '0.0' for Reverse Charge" },
+          { message: "description can't be blank" },
+        ],
+      })
+    );
+
+    const client = new FreeAgentClient("token");
+    try {
+      await client.get("/v2/test");
+      expect.fail("should have thrown");
+    } catch (e) {
+      const err = e as FreeAgentApiError;
+      expect(err.status).toBe(422);
+      expect(err.message).toContain("Reverse Charge");
+      expect(err.message).toContain("description can't be blank");
+    }
+  });
+
   it("returns safe fallback for malformed error body", async () => {
     mockFetch.mockResolvedValueOnce(mockError(500, "not json"));
 

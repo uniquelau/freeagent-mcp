@@ -139,6 +139,49 @@ describe("registerReconcileTools", () => {
     );
   });
 
+  it("passes explicit VAT fields (reverse charge) through", async () => {
+    const { server, tools } = createMockServer();
+    const client = createMockClient();
+    registerReconcileTools(server, client);
+    const handler = tools.get("freeagent_reconcile_bank_transaction")!;
+
+    await handler({
+      bank_transaction_id: "99",
+      category: "https://api.freeagent.com/v2/categories/285",
+      sales_tax_rate: "20.0",
+      ec_status: "Reverse Charge",
+      description: "Azure",
+    });
+
+    expect(client.postJson).toHaveBeenCalledWith(
+      "/bank_transaction_explanations",
+      expect.objectContaining({
+        bank_transaction_explanation: expect.objectContaining({
+          category: "https://api.freeagent.com/v2/categories/285",
+          sales_tax_rate: "20.0",
+          ec_status: "Reverse Charge",
+        }),
+      })
+    );
+  });
+
+  it("omits VAT fields when not provided (inherits category default)", async () => {
+    const { server, tools } = createMockServer();
+    const client = createMockClient();
+    registerReconcileTools(server, client);
+    const handler = tools.get("freeagent_reconcile_bank_transaction")!;
+
+    await handler({
+      bank_transaction_id: "99",
+      category: "https://api.freeagent.com/v2/categories/285",
+    });
+
+    const payload = (client.postJson as ReturnType<typeof vi.fn>).mock.calls[0][1]
+      .bank_transaction_explanation;
+    expect(payload).not.toHaveProperty("sales_tax_rate");
+    expect(payload).not.toHaveProperty("ec_status");
+  });
+
   it("rejects when no link target is provided", async () => {
     const { server, tools } = createMockServer();
     const client = createMockClient();
