@@ -126,14 +126,15 @@ export async function getValidAccessToken(
 
 export function openBrowser(url: string): void {
   const platform = process.platform;
-  // Windows has no `open`/`xdg-open` equivalent. Avoid `cmd /c start`: cmd.exe
-  // treats `&` as a command separator, and execFile won't quote the URL (it has
-  // no spaces), so the OAuth URL would be truncated at its first `&` query
-  // separator. explorer.exe is a real executable that opens the URL in the
-  // default browser; execFile passes it as a single literal arg (CommandLineToArgvW
-  // parsing, where `&` is not special), so the query string survives intact.
+  // The URL is passed as a single literal arg on every platform (never a shell
+  // string), so query separators like `&` survive and no shell interpolation is
+  // possible. On Windows, `rundll32 url.dll,FileProtocolHandler <url>` hands the
+  // URL to the registered protocol handler (the default browser for http/https).
+  // This is more reliable than `explorer.exe <url>`, which can open a file
+  // window (e.g. Documents) instead of the browser. Avoid `cmd /c start`: cmd.exe
+  // treats `&` as a command separator and would truncate the OAuth query string.
   if (platform === "win32") {
-    execFile("explorer.exe", [url]);
+    execFile("rundll32.exe", ["url.dll,FileProtocolHandler", url]);
   } else {
     execFile(platform === "darwin" ? "open" : "xdg-open", [url]);
   }

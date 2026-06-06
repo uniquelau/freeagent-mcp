@@ -282,9 +282,10 @@ describe("openBrowser", () => {
 
   // The URL is passed as a single literal arg on every platform — never a shell
   // string — so query separators like `&` survive and no shell interpolation is
-  // possible. Windows uses explorer.exe to avoid cmd.exe's `&` parsing.
+  // possible. Windows uses rundll32's FileProtocolHandler (reliably opens the
+  // default browser) rather than explorer.exe (which can open a file window).
   it.each([
-    ["win32", "explorer.exe", [url]],
+    ["win32", "rundll32.exe", ["url.dll,FileProtocolHandler", url]],
     ["darwin", "open", [url]],
     ["linux", "xdg-open", [url]],
   ] as const)("opens the URL on %s via %s", (platform, command, args) => {
