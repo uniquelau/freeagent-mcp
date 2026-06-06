@@ -77,11 +77,19 @@ if (process.argv[2] === "auth") {
     .then(() => {
       console.log("Authentication complete! Tokens saved.");
       console.log("You can now start the MCP server.");
-      process.exit(0);
     })
     .catch((err) => {
       console.error("Authentication failed:", err.message);
-      process.exit(1);
+      process.exitCode = 1;
+    })
+    .finally(() => {
+      // Don't call process.exit() here: on Windows it races the teardown of
+      // undici's (global fetch) async handle and aborts with a libuv assertion
+      // (async.c). The auth flow has closed its callback server and released
+      // stdin, so the loop drains and the process exits on its own. The unref'd
+      // timer is a safety net (it doesn't keep the loop alive) for the rare case
+      // something lingers past 1.5s, by which point undici has settled.
+      setTimeout(() => process.exit(process.exitCode ?? 0), 1500).unref();
     });
 } else {
   // Normal server mode

@@ -231,6 +231,11 @@ export async function runAuthFlow(config: OAuthConfig): Promise<void> {
       clearTimeout(timeout);
       if (httpServer) httpServer.close();
       if (rl) rl.close();
+      // Release stdin so the event loop can drain and the process can exit
+      // WITHOUT a forced process.exit() — which on Windows races the teardown of
+      // undici's (global fetch) async handle and trips a libuv assertion.
+      process.stdin.pause();
+      if (typeof process.stdin.unref === "function") process.stdin.unref();
     }
 
     async function handleCode(code: string) {
