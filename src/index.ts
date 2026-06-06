@@ -19,6 +19,8 @@ import { registerExpenseTools } from "./tools/expenses.js";
 import { registerBankingTools } from "./tools/banking.js";
 import { registerCategoryTools } from "./tools/categories.js";
 import { registerAccountingTools } from "./tools/accounting.js";
+import { registerReconcileTools } from "./tools/reconcile.js";
+import { loadToolPolicy, createGatedRegistrar } from "./tool-policy.js";
 
 const FREEAGENT_ACCESS_TOKEN = process.env.FREEAGENT_ACCESS_TOKEN;
 const FREEAGENT_CLIENT_ID = process.env.FREEAGENT_CLIENT_ID;
@@ -35,6 +37,30 @@ function buildOAuthConfig(): OAuthConfig | null {
     };
   }
   return null;
+}
+
+/**
+ * Refuse to send bearer tokens over a non-HTTPS base URL. The access token is
+ * attached to every request, so an http:// override (other than localhost, for
+ * testing against a local mock) would leak credentials in cleartext.
+ */
+function assertHttpsBaseUrl(url: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    console.error(`Invalid FREEAGENT_BASE_URL: ${url}`);
+    process.exit(1);
+  }
+  const isLocalhost =
+    parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
+  if (parsed.protocol !== "https:" && !isLocalhost) {
+    console.error(
+      `Refusing non-HTTPS FREEAGENT_BASE_URL (${url}): bearer tokens must only ` +
+        `be sent over HTTPS.`
+    );
+    process.exit(1);
+  }
 }
 
 // Handle `npx freeagent-mcp-server auth` subcommand
@@ -60,6 +86,10 @@ if (process.argv[2] === "auth") {
 } else {
   // Normal server mode
   let client: FreeAgentClient;
+
+  if (FREEAGENT_BASE_URL) {
+    assertHttpsBaseUrl(FREEAGENT_BASE_URL);
+  }
 
   if (FREEAGENT_ACCESS_TOKEN) {
     // Legacy: direct access token
@@ -90,22 +120,29 @@ if (process.argv[2] === "auth") {
     version: "1.0.0",
   });
 
-  registerCompanyTools(server, client);
-  registerUserTools(server, client);
-  registerContactTools(server, client);
-  registerProjectTools(server, client);
-  registerTaskTools(server, client);
-  registerTimeslipTools(server, client);
-  registerInvoiceTools(server, client);
-  registerEstimateTools(server, client);
-  registerBillTools(server, client);
-  registerCreditNoteTools(server, client);
-  registerExpenseTools(server, client);
-  registerBankingTools(server, client);
-  registerCategoryTools(server, client);
-  registerAccountingTools(server, client);
+  // Locked-down by default: only read tools + reconcile are registered unless
+  // writes are explicitly enabled. See tool-policy.ts for the env controls.
+  const policy = loadToolPolicy();
+  const reg = createGatedRegistrar(server, policy);
+
+  registerCompanyTools(reg, client);
+  registerUserTools(reg, client);
+  registerContactTools(reg, client);
+  registerProjectTools(reg, client);
+  registerTaskTools(reg, client);
+  registerTimeslipTools(reg, client);
+  registerInvoiceTools(reg, client);
+  registerEstimateTools(reg, client);
+  registerBillTools(reg, client);
+  registerCreditNoteTools(reg, client);
+  registerExpenseTools(reg, client);
+  registerBankingTools(reg, client);
+  registerCategoryTools(reg, client);
+  registerAccountingTools(reg, client);
+  registerReconcileTools(reg, client);
 
   async function main() {
+    console.error(`FreeAgent MCP tool policy: ${policy.describe()}`);
     const transport = new StdioServerTransport();
     await server.connect(transport);
     console.error("FreeAgent MCP Server running on stdio");

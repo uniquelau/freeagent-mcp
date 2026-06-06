@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/freeagent-mcp-server.svg)](https://www.npmjs.com/package/freeagent-mcp-server)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-MCP server for the [FreeAgent](https://www.freeagent.com/) accounting API. Provides 76 tools covering invoices, expenses, contacts, projects, timeslips, banking, bills, estimates, credit notes, accounting reports, and more.
+MCP server for the [FreeAgent](https://www.freeagent.com/) accounting API. Provides 77 tools covering invoices, expenses, contacts, projects, timeslips, banking, bank reconciliation, bills, estimates, credit notes, accounting reports, and more. Tools are **locked down by default** — see [Tool gating](#tool-gating-locked-down-by-default).
 
 ## Features
 
@@ -98,9 +98,35 @@ npm start
 | `FREEAGENT_CLIENT_SECRET` | Yes* | OAuth2 client secret from Developer Dashboard |
 | `FREEAGENT_SANDBOX` | No | Set to `true` for sandbox (defaults to production) |
 | `FREEAGENT_ACCESS_TOKEN` | No | Legacy: direct access token (skips stored token flow) |
-| `FREEAGENT_BASE_URL` | No | Override API base URL |
+| `FREEAGENT_BASE_URL` | No | Override API base URL (must be HTTPS, or localhost) |
+| `FREEAGENT_ENABLE_WRITES` | No | `true` registers all write/delete tools (see Tool gating) |
+| `FREEAGENT_ENABLED_TOOLS` | No | Comma-separated allowlist; only these tools are registered |
+| `FREEAGENT_DISABLED_TOOLS` | No | Comma-separated blocklist; always wins |
 
 *Not required if using `FREEAGENT_ACCESS_TOKEN` directly.
+
+### Tool gating (locked down by default)
+
+To limit blast radius when an LLM drives the server, tools are **gated**. By
+default the server runs **locked down**: only read tools (`list_*` / `get_*`)
+and `freeagent_reconcile_bank_transaction` are registered. Write and delete
+tools are not exposed unless you opt in.
+
+| Goal | Setting |
+|------|---------|
+| Default (reads + reconcile only) | *(no config)* |
+| Enable every tool (legacy) | `FREEAGENT_ENABLE_WRITES=true` |
+| Register only specific tools | `FREEAGENT_ENABLED_TOOLS=tool_a,tool_b` |
+| Never register specific tools | `FREEAGENT_DISABLED_TOOLS=freeagent_delete_bank_account` |
+
+Precedence: `FREEAGENT_DISABLED_TOOLS` (blocklist) always wins; otherwise
+`FREEAGENT_ENABLED_TOOLS` (allowlist) if set; otherwise the default locked-down
+set, widened to all tools by `FREEAGENT_ENABLE_WRITES=true`. The active policy is
+logged to stderr at startup.
+
+For a reconciliation + cash-flow workflow the default set is usually enough; if
+you use an allowlist, include `freeagent_reconcile_bank_transaction` plus the
+`list_*`/`get_*` and accounting-report tools you need.
 
 ### Claude Desktop / Cowork
 
@@ -305,6 +331,17 @@ freeagent-mcp/
 | `freeagent_delete_bank_account` | Delete a bank account | `DELETE /bank_accounts/:id` |
 | `freeagent_list_bank_transactions` | List transactions for a bank account | `GET /bank_transactions` |
 | `freeagent_get_bank_transaction` | Get a specific bank transaction | `GET /bank_transactions/:id` |
+
+### Reconciliation (1 tool)
+
+| Tool | Description | API Endpoint |
+|------|-------------|-------------|
+| `freeagent_reconcile_bank_transaction` | Reconcile a bank transaction by creating an explanation linked to a category, paid invoice, or paid bill | `POST /bank_transaction_explanations` |
+
+Provide `bank_transaction_id` (id or URL) and exactly one of `category` (nominal
+code or URL), `paid_invoice` (id or URL), or `paid_bill` (id or URL). The date
+and amount default to the transaction's own values unless overridden. Enabled in
+the default locked-down posture.
 
 ### Categories (2 tools)
 
