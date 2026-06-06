@@ -51,7 +51,12 @@ async function resolveResourceUrl(
     string,
     { url?: string } | undefined
   >;
-  const url = data?.[singular]?.url;
+  // Standard single-resource GETs nest under the singular name (invoice, bill),
+  // but GET /categories/:code nests the category under its *group* key
+  // (e.g. income_categories), so fall back to the first object exposing a url.
+  const url =
+    data?.[singular]?.url ??
+    Object.values(data ?? {}).find((v) => typeof v?.url === "string")?.url;
   if (!url) {
     throw new Error(`Could not resolve ${singular} "${value}" to a FreeAgent URL`);
   }

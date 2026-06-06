@@ -62,8 +62,11 @@ describe("registerReconcileTools", () => {
       get: vi.fn(async (path: string) => {
         if (path.startsWith("/bank_transactions/")) return TX;
         if (path.startsWith("/categories/")) {
+          // FreeAgent nests a single category under its GROUP key, not "category"
           return {
-            category: { url: "https://api.freeagent.com/v2/categories/285" },
+            admin_expenses_categories: {
+              url: "https://api.freeagent.com/v2/categories/285",
+            },
           };
         }
         throw new Error(`unexpected GET ${path}`);
