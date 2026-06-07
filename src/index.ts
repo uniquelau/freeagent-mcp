@@ -20,6 +20,7 @@ import { registerBankingTools } from "./tools/banking.js";
 import { registerCategoryTools } from "./tools/categories.js";
 import { registerAccountingTools } from "./tools/accounting.js";
 import { registerReconcileTools } from "./tools/reconcile.js";
+import { registerApprovalTools } from "./tools/approve.js";
 import { loadToolPolicy, createGatedRegistrar } from "./tool-policy.js";
 
 const FREEAGENT_ACCESS_TOKEN = process.env.FREEAGENT_ACCESS_TOKEN;
@@ -148,6 +149,7 @@ if (process.argv[2] === "auth") {
   registerCategoryTools(reg, client);
   registerAccountingTools(reg, client);
   registerReconcileTools(reg, client);
+  registerApprovalTools(reg, client);
 
   async function main() {
     console.error(`FreeAgent MCP tool policy: ${policy.describe()}`);
