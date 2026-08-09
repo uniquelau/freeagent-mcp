@@ -16,11 +16,20 @@ function parseApiError(status: number, body: string): FreeAgentApiError {
   try {
     const parsed = JSON.parse(body);
     const code = parsed?.error ?? parsed?.code ?? "unknown";
-    const message =
+    let message =
       parsed?.message ??
       parsed?.error_description ??
-      parsed?.errors?.error?.message ??
-      `HTTP ${status}`;
+      parsed?.errors?.error?.message;
+    // FreeAgent validation errors come back as `{ "errors": [ { "message": ... } ] }`.
+    // Surface all of them so callers see the actual reason (e.g. VAT rules) rather
+    // than a bare status code.
+    if (!message && Array.isArray(parsed?.errors)) {
+      message = parsed.errors
+        .map((e: { message?: string }) => e?.message)
+        .filter(Boolean)
+        .join("; ");
+    }
+    if (!message) message = `HTTP ${status}`;
     return new FreeAgentApiError(status, code, message);
   } catch {
     return new FreeAgentApiError(status, "unknown", `HTTP ${status} error`);
