@@ -24,7 +24,10 @@ const READ_TOOL_PREFIXES = ["freeagent_list_", "freeagent_get_"] as const;
  * are required for core reconciliation / cash-flow workflows and are far lower
  * blast radius than delete/send operations.
  */
-const DEFAULT_ENABLED_WRITES = new Set<string>(["freeagent_reconcile_bank_transaction"]);
+const DEFAULT_ENABLED_WRITES = new Set<string>([
+  "freeagent_reconcile_bank_transaction",
+  "freeagent_approve_explanation",
+]);
 
 export interface ToolPolicy {
   isEnabled(name: string): boolean;

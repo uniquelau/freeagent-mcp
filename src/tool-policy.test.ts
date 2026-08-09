@@ -7,6 +7,7 @@ describe("loadToolPolicy", () => {
     expect(p.isEnabled("freeagent_list_invoices")).toBe(true);
     expect(p.isEnabled("freeagent_get_company")).toBe(true);
     expect(p.isEnabled("freeagent_reconcile_bank_transaction")).toBe(true);
+    expect(p.isEnabled("freeagent_approve_explanation")).toBe(true);
 
     expect(p.isEnabled("freeagent_delete_bank_account")).toBe(false);
     expect(p.isEnabled("freeagent_create_invoice")).toBe(false);
