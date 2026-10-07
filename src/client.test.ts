@@ -298,3 +298,86 @@ describe("FreeAgentClient - error handling", () => {
     }
   });
 });
+
+describe("FreeAgentClient - rate limit retry", () => {
+  function mock429(retryAfter?: string): Response {
+    return {
+      ok: false,
+      status: 429,
+      headers: new Headers(retryAfter ? { "Retry-After": retryAfter } : {}),
+      text: async () => "",
+    } as Response;
+  }
+
+  it("retries a 429 and returns the eventual success", async () => {
+    mockFetch
+      .mockResolvedValueOnce(mock429())
+      .mockResolvedValueOnce(mock429())
+      .mockResolvedValueOnce(mockOk({ data: "ok" }));
+    const sleep = vi.fn(async () => {});
+    const client = new FreeAgentClient("token", undefined, { sleep });
+    const result = await client.get("/v2/test");
+    expect(result).toEqual({ data: "ok" });
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+    // exponential backoff from baseDelayMs when there is no Retry-After
+    expect(sleep.mock.calls.map((c) => c[0])).toEqual([1000, 2000]);
+  });
+
+  it("honours a Retry-After header in seconds", async () => {
+    mockFetch
+      .mockResolvedValueOnce(mock429("7"))
+      .mockResolvedValueOnce(mockOk({ data: "ok" }));
+    const sleep = vi.fn(async () => {});
+    const client = new FreeAgentClient("token", undefined, { sleep });
+    await client.get("/v2/test");
+    expect(sleep).toHaveBeenCalledWith(7000);
+  });
+
+  it("retries writes too, resending the same body", async () => {
+    mockFetch
+      .mockResolvedValueOnce(mock429())
+      .mockResolvedValueOnce(mockOk({ bill: { url: "x" } }));
+    const client = new FreeAgentClient("token", undefined, { sleep: async () => {} });
+    await client.postJson("/v2/bills", { bill: { reference: "059" } });
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockFetch.mock.calls[1][1].method).toBe("POST");
+    expect(mockFetch.mock.calls[1][1].body).toBe(mockFetch.mock.calls[0][1].body);
+  });
+
+  it("gives up after maxRetries and throws the 429", async () => {
+    mockFetch.mockResolvedValue(mock429());
+    const sleep = vi.fn(async () => {});
+    const client = new FreeAgentClient("token", undefined, { maxRetries: 2, sleep });
+    await expect(client.get("/v2/test")).rejects.toMatchObject({ status: 429 });
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+    expect(sleep).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails fast when Retry-After exceeds maxDelayMs", async () => {
+    mockFetch.mockResolvedValue(mock429("3600"));
+    const sleep = vi.fn(async () => {});
+    const client = new FreeAgentClient("token", undefined, { sleep });
+    await expect(client.get("/v2/test")).rejects.toBeInstanceOf(FreeAgentApiError);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("does not retry other errors", async () => {
+    mockFetch.mockResolvedValue(mockError(500, { error: "boom" }));
+    const sleep = vi.fn(async () => {});
+    const client = new FreeAgentClient("token", undefined, { sleep });
+    await expect(client.get("/v2/test")).rejects.toMatchObject({ status: 500 });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("re-reads the access token on each attempt", async () => {
+    mockFetch
+      .mockResolvedValueOnce(mock429())
+      .mockResolvedValueOnce(mockOk({ data: "ok" }));
+    const provider = vi.fn().mockResolvedValueOnce("old").mockResolvedValueOnce("new");
+    const client = new FreeAgentClient(provider, undefined, { sleep: async () => {} });
+    await client.get("/v2/test");
+    expect(mockFetch.mock.calls[1][1].headers.Authorization).toBe("Bearer new");
+  });
+});
