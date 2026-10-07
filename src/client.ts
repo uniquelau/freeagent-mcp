@@ -40,19 +40,50 @@ function encodeFormBody(data: Record<string, string>): string {
   return new URLSearchParams(data).toString();
 }
 
+export interface RetryOptions {
+  /** Retries after a 429 before giving up (default 5; 0 disables). */
+  maxRetries?: number;
+  /** First backoff delay when the response has no Retry-After (default 1000ms). */
+  baseDelayMs?: number;
+  /** Longest single wait; a longer Retry-After fails fast instead (default 60000ms). */
+  maxDelayMs?: number;
+  /** Injectable for tests. */
+  sleep?: (ms: number) => Promise<void>;
+}
+
+const sleepFor = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Retry-After is either delta-seconds or an HTTP date. */
+function parseRetryAfter(value: string | null | undefined): number | undefined {
+  if (!value) return undefined;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+  const date = Date.parse(value);
+  return Number.isNaN(date) ? undefined : Math.max(0, date - Date.now());
+}
+
 export class FreeAgentClient {
   private getAccessToken: () => Promise<string>;
   private baseUrl: string;
+  private retry: Required<RetryOptions>;
 
   constructor(
     tokenOrProvider: string | (() => Promise<string>),
-    baseUrl?: string
+    baseUrl?: string,
+    retry: RetryOptions = {}
   ) {
     this.getAccessToken =
       typeof tokenOrProvider === "function"
         ? tokenOrProvider
         : async () => tokenOrProvider;
     this.baseUrl = baseUrl || DEFAULT_BASE_URL;
+    this.retry = {
+      maxRetries: retry.maxRetries ?? 5,
+      baseDelayMs: retry.baseDelayMs ?? 1000,
+      maxDelayMs: retry.maxDelayMs ?? 60_000,
+      sleep: retry.sleep ?? sleepFor,
+    };
   }
 
   async get<T = unknown>(
@@ -121,9 +152,7 @@ export class FreeAgentClient {
       }
     }
 
-    const accessToken = await this.getAccessToken();
     const headers: Record<string, string> = {
-      Authorization: `Bearer ${accessToken}`,
       Accept: "application/json",
       "User-Agent": "freeagent-mcp-server",
     };
@@ -138,19 +167,37 @@ export class FreeAgentClient {
       encodedBody = encodeFormBody(body as Record<string, string>);
     }
 
-    const response = await fetch(url.toString(), {
-      method,
-      headers,
-      body: encodedBody,
-    });
+    // FreeAgent rate-limits per user (HTTP 429). A 429 means the request was
+    // rejected, not processed, so retrying is safe for every method, writes included.
+    for (let attempt = 0; ; attempt++) {
+      // Fetched per attempt so a long wait can't leave us with an expired token.
+      headers.Authorization = `Bearer ${await this.getAccessToken()}`;
 
-    if (!response.ok) {
-      const errorBody = await response.text();
-      throw parseApiError(response.status, errorBody);
+      const response = await fetch(url.toString(), {
+        method,
+        headers,
+        body: encodedBody,
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        if (response.status === 429 && attempt < this.retry.maxRetries) {
+          const delay =
+            parseRetryAfter(response.headers?.get?.("retry-after")) ??
+            Math.min(this.retry.baseDelayMs * 2 ** attempt, this.retry.maxDelayMs);
+          // A Retry-After beyond our ceiling (e.g. the hourly limit) means waiting
+          // here would hang the caller; surface the 429 instead.
+          if (delay <= this.retry.maxDelayMs) {
+            await this.retry.sleep(delay);
+            continue;
+          }
+        }
+        throw parseApiError(response.status, errorBody);
+      }
+
+      const text = await response.text();
+      if (!text) return {} as T;
+      return JSON.parse(text) as T;
     }
-
-    const text = await response.text();
-    if (!text) return {} as T;
-    return JSON.parse(text) as T;
   }
 }
